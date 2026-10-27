@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Libro mayor{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Libro mayor</h1>
+    <div class="subtitle">Movimientos y saldo acumulado por cuenta</div>
+  </div>
+</div>
+
+<div class="panel">
+  <form method="get" class="field" style="max-width:420px;">
+    <label>Selecciona una cuenta</label>
+    <select name="cuenta_id" onchange="this.form.submit()">
+      <option value="">— Selecciona —</option>
+      {% for c in cuentas %}
+      <option value="{{ c.id }}" {{ 'selected' if cuenta_sel and cuenta_sel.id==c.id }}>
+        {{ c.codigo }} · {{ c.nombre }}
+      </option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+{% if cuenta_sel %}
+<div class="panel">
+  <h2>{{ cuenta_sel.codigo }} · {{ cuenta_sel.nombre }}</h2>
+  <p class="subtitle" style="margin-bottom:18px;">Tipo: {{ cuenta_sel.tipo }}</p>
+
+  {% if movimientos %}
+  <table>
+    <thead>
+      <tr>
+        <th>Fecha</th>
+        <th>Asiento</th>
+        <th>Detalle</th>
+        <th class="num">Debe</th>
+        <th class="num">Haber</th>
+        <th class="num">Saldo</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in movimientos %}
+      <tr>
+        <td>{{ m.fecha }}</td>
+        <td>#{{ m.numero }} — {{ m.descripcion }}</td>
+        <td>{{ m.detalle or "—" }}</td>
+        <td class="num">{{ "%.2f"|format(m.debe) if m.debe else "" }}</td>
+        <td class="num">{{ "%.2f"|format(m.haber) if m.haber else "" }}</td>
+        <td class="num">{{ "%.2f"|format(m.saldo) }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="foot-total">
+        <td colspan="5">Saldo final</td>
+        <td class="num">${{ "%.2f"|format(saldo_final) }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">Esta cuenta todavía no tiene movimientos registrados.</div>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Restablecer contraseña' if objetivo else 'Mi cuenta' }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    {% if objetivo %}
+      <h1>Restablecer contraseña</h1>
+      <div class="subtitle">Nueva contraseña para <strong>{{ objetivo.usuario }}</strong></div>
+    {% else %}
+      <h1>Mi cuenta</h1>
+      <div class="subtitle">
+        Sesión de <strong>{{ usuario_actual.usuario }}</strong> ·
+        {{ 'Administrador' if usuario_actual.es_admin else 'Usuario' }}
+      </div>
+    {% endif %}
+  </div>
+  {% if objetivo %}
+    <a href="{{ url_for('usuarios') }}" class="btn btn-secondary">Volver</a>
+  {% endif %}
+</div>
+
+<div class="panel" style="max-width:480px;">
+  <h2>{{ 'Nueva contraseña' if objetivo else 'Cambiar contraseña' }}</h2>
+  <p class="subtitle" style="margin-bottom:18px;">
+    {% if objetivo %}
+      Si {{ objetivo.usuario }} tiene una sesión abierta, se cerrará y deberá entrar con la nueva contraseña.
+    {% else %}
+      Mínimo 8 caracteres. Las sesiones abiertas en otros navegadores se cerrarán.
+    {% endif %}
+  </p>
+  <form method="post">
+    {% if not objetivo %}
+    <div class="field">
+      <label for="clave_actual">Contraseña actual</label>
+      <input id="clave_actual" type="password" name="clave_actual" autocomplete="current-password" required>
+    </div>
+    {% endif %}
+    <div class="field">
+      <label for="clave_nueva">Contraseña nueva</label>
+      <input id="clave_nueva" type="password" name="clave_nueva" autocomplete="new-password" required>
+    </div>
+    <div class="field">
+      <label for="clave_confirmar">Confirmar contraseña nueva</label>
+      <input id="clave_confirmar" type="password" name="clave_confirmar" autocomplete="new-password" required>
+    </div>
+    <div class="actions-row">
+      <button type="submit" class="btn">Guardar contraseña</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

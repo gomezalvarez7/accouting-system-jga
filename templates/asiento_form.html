@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Nuevo asiento{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Nuevo asiento contable</h1>
+    <div class="subtitle">El total del Debe debe ser igual al total del Haber</div>
+  </div>
+  <a href="{{ url_for('diario') }}" class="btn btn-secondary">Volver</a>
+</div>
+
+{% if not cuentas %}
+<div class="panel empty-state">
+  Necesitas crear al menos dos cuentas antes de registrar un asiento.
+  <br><a href="{{ url_for('nueva_cuenta') }}">Crear cuenta</a>
+</div>
+{% else %}
+<div class="panel">
+  <form method="post" id="form-asiento">
+    <div class="form-grid">
+      <div class="field">
+        <label>Fecha</label>
+        <input type="date" name="fecha" value="{{ fecha }}" required>
+      </div>
+      <div class="field full">
+        <label>Descripción / Concepto del asiento</label>
+        <input type="text" name="descripcion" placeholder="Ej. Pago de servicios de luz" required
+               value="{{ descripcion }}">
+      </div>
+    </div>
+
+    <table class="lines-table" id="tabla-lineas">
+      <thead>
+        <tr>
+          <th style="width:26%;">Cuenta</th>
+          <th>Detalle</th>
+          <th style="width:130px;" class="num">Debe</th>
+          <th style="width:130px;" class="num">Haber</th>
+          <th style="width:36px;"></th>
+        </tr>
+      </thead>
+      <tbody id="lineas-body">
+      </tbody>
+    </table>
+
+    <div class="actions-row" style="margin-top:10px;">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="agregarLinea()">+ Agregar línea</button>
+    </div>
+
+    <div class="totals-bar" id="totales-bar">
+      <span>Debe: <span id="total-debe">0.00</span></span>
+      <span>Haber: <span id="total-haber">0.00</span></span>
+      <span id="estado-cuadre">—</span>
+    </div>
+
+    <div class="actions-row">
+      <button type="submit" class="btn">Guardar asiento</button>
+      <a href="{{ url_for('diario') }}" class="btn btn-secondary">Cancelar</a>
+    </div>
+  </form>
+</div>
+
+<template id="fila-template">
+  <tr>
+    <td>
+      <select name="cuenta_id[]">
+        <option value="">Seleccionar…</option>
+        {% for c in cuentas %}
+        <option value="{{ c.id }}">{{ c.codigo }} · {{ c.nombre }}</option>
+        {% endfor %}
+      </select>
+    </td>
+    <td><input type="text" name="detalle[]" placeholder="Opcional"></td>
+    <td><input type="number" step="0.01" min="0" name="debe[]" class="num" placeholder="0.00" oninput="calcularTotales()"></td>
+    <td><input type="number" step="0.01" min="0" name="haber[]" class="num" placeholder="0.00" oninput="calcularTotales()"></td>
+    <td><button type="button" class="remove-line" onclick="eliminarLinea(this)">✕</button></td>
+  </tr>
+</template>
+
+<script>
+function agregarLinea() {
+  const tpl = document.getElementById('fila-template');
+  const clone = tpl.content.cloneNode(true);
+  document.getElementById('lineas-body').appendChild(clone);
+}
+
+function eliminarLinea(btn) {
+  btn.closest('tr').remove();
+  calcularTotales();
+}
+
+function calcularTotales() {
+  let totalDebe = 0, totalHaber = 0;
+  document.querySelectorAll('input[name="debe[]"]').forEach(i => totalDebe += parseFloat(i.value) || 0);
+  document.querySelectorAll('input[name="haber[]"]').forEach(i => totalHaber += parseFloat(i.value) || 0);
+  document.getElementById('total-debe').textContent = totalDebe.toFixed(2);
+  document.getElementById('total-haber').textContent = totalHaber.toFixed(2);
+  const bar = document.getElementById('totales-bar');
+  const estado = document.getElementById('estado-cuadre');
+  if (totalDebe > 0 && Math.abs(totalDebe - totalHaber) < 0.005) {
+    bar.className = 'totals-bar balanced';
+    estado.textContent = '✓ Asiento cuadrado';
+  } else {
+    bar.className = 'totals-bar unbalanced';
+    estado.textContent = '⚠ El asiento no cuadra';
+  }
+}
+
+// Iniciar con dos líneas vacías
+agregarLinea();
+agregarLinea();
+
+document.getElementById('form-asiento').addEventListener('submit', function(e) {
+  calcularTotales();
+  const totalDebe = parseFloat(document.getElementById('total-debe').textContent);
+  const totalHaber = parseFloat(document.getElementById('total-haber').textContent);
+  if (totalDebe === 0 || Math.abs(totalDebe - totalHaber) >= 0.005) {
+    e.preventDefault();
+    alert('El asiento no cuadra: el Debe debe ser igual al Haber y mayor que cero.');
+  }
+});
+</script>
+{% endif %}
+{% endblock %}

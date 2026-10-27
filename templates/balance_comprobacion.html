@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Balance de comprobación{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Balance de comprobación</h1>
+    <div class="subtitle">Verifica que los débitos y créditos de todas las cuentas cuadren</div>
+  </div>
+</div>
+
+<div class="panel">
+  {% if saldos %}
+  <table>
+    <thead>
+      <tr>
+        <th>Cuenta</th>
+        <th>Tipo</th>
+        <th class="num">Debe</th>
+        <th class="num">Haber</th>
+        <th class="num">Saldo deudor</th>
+        <th class="num">Saldo acreedor</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in saldos %}
+      <tr>
+        <td>{{ s.codigo }} · {{ s.nombre }}</td>
+        <td><span class="tag tag-{{ s.tipo }}">{{ s.tipo }}</span></td>
+        <td class="num">{{ "%.2f"|format(s.total_debe) }}</td>
+        <td class="num">{{ "%.2f"|format(s.total_haber) }}</td>
+        <td class="num">{{ "%.2f"|format(s.saldo_deudor) if s.saldo_deudor else "" }}</td>
+        <td class="num">{{ "%.2f"|format(s.saldo_acreedor) if s.saldo_acreedor else "" }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="foot-total">
+        <td colspan="2">Totales</td>
+        <td class="num">{{ "%.2f"|format(totales.debe) }}</td>
+        <td class="num">{{ "%.2f"|format(totales.haber) }}</td>
+        <td class="num">{{ "%.2f"|format(totales.saldo_deudor) }}</td>
+        <td class="num">{{ "%.2f"|format(totales.saldo_acreedor) }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  {% if totales.saldo_deudor == totales.saldo_acreedor %}
+  <div class="flash flash-success" style="margin-top:18px;">✓ El balance cuadra correctamente.</div>
+  {% else %}
+  <div class="flash flash-error" style="margin-top:18px;">⚠ El balance no cuadra. Revisa los asientos registrados.</div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty-state">No hay cuentas registradas todavía.</div>
+  {% endif %}
+</div>
+{% endblock %}

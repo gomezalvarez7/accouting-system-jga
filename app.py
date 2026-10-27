@@ -1,0 +1,771 @@
+# -*- coding: utf-8 -*-
+"""
+Accounting System JGA — Sistema de Contabilidad General
+--------------------------------------------------------
+Aplicación web local (Flask + SQLite) para llevar contabilidad general:
+- Plan de cuentas
+- Libro diario (asientos contables)
+- Libro mayor
+- Balance de comprobación
+- Estado de resultados
+- Balance general
+
+Todos los datos se guardan en un archivo local: contabilidad.db (SQLite),
+en la misma carpeta del proyecto. No requiere internet ni servidores externos.
+"""
+
+import hashlib
+import os
+import re
+import secrets
+import sqlite3
+from datetime import date
+from functools import wraps
+from flask import (
+    Flask, render_template, request, redirect, url_for, flash, g, session
+)
+from werkzeug.security import generate_password_hash, check_password_hash
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "contabilidad.db")
+
+KEY_PATH = os.path.join(BASE_DIR, "secret.key")
+
+
+def cargar_secret_key():
+    """Genera una clave secreta aleatoria la primera vez y la reutiliza después.
+    Sirve para firmar la sesión (cookie) del login."""
+    if not os.path.exists(KEY_PATH):
+        with open(KEY_PATH, "w") as f:
+            f.write(secrets.token_hex(32))
+    with open(KEY_PATH) as f:
+        return f.read().strip()
+
+
+app = Flask(__name__)
+app.secret_key = cargar_secret_key()
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+# Usuario inicial que se crea automáticamente si no existe ninguno
+USUARIO_INICIAL = "JuanJo"
+CLAVE_INICIAL = "123456789"
+
+# Nombre de la aplicación (se muestra en el menú, el login y el título de la pestaña)
+NOMBRE_APP = "Accounting System JGA"
+
+TIPOS_CUENTA = ["Activo", "Pasivo", "Patrimonio", "Ingreso", "Gasto"]
+NATURALEZA = {
+    "Activo": "Deudora",
+    "Pasivo": "Acreedora",
+    "Patrimonio": "Acreedora",
+    "Ingreso": "Acreedora",
+    "Gasto": "Deudora",
+}
+
+
+# ---------------------------------------------------------------------------
+# Conexión a la base de datos
+# ---------------------------------------------------------------------------
+def get_db():
+    if "db" not in g:
+        g.db = sqlite3.connect(DB_PATH)
+        g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA foreign_keys = ON")
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exception=None):
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
+
+
+def init_db():
+    db = sqlite3.connect(DB_PATH)
+    db.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS cuentas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            codigo TEXT NOT NULL UNIQUE,
+            nombre TEXT NOT NULL,
+            tipo TEXT NOT NULL CHECK(tipo IN ('Activo','Pasivo','Patrimonio','Ingreso','Gasto')),
+            saldo_inicial REAL NOT NULL DEFAULT 0,
+            activa INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS asientos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero INTEGER NOT NULL,
+            fecha TEXT NOT NULL,
+            descripcion TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario TEXT NOT NULL UNIQUE,
+            clave_hash TEXT NOT NULL,
+            es_admin INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS movimientos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asiento_id INTEGER NOT NULL REFERENCES asientos(id) ON DELETE CASCADE,
+            cuenta_id INTEGER NOT NULL REFERENCES cuentas(id),
+            detalle TEXT,
+            debe REAL NOT NULL DEFAULT 0,
+            haber REAL NOT NULL DEFAULT 0
+        );
+        """
+    )
+    # Migración: bases de datos creadas antes de existir los roles
+    columnas = [c[1] for c in db.execute("PRAGMA table_info(usuarios)").fetchall()]
+    if "es_admin" not in columnas:
+        db.execute("ALTER TABLE usuarios ADD COLUMN es_admin INTEGER NOT NULL DEFAULT 0")
+
+    # Usuario inicial: solo se crea si la tabla está vacía (así un usuario
+    # eliminado nunca "resucita" con la contraseña por defecto)
+    total = db.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0]
+    if total == 0:
+        db.execute(
+            "INSERT INTO usuarios (usuario, clave_hash, es_admin) VALUES (?, ?, 1)",
+            (USUARIO_INICIAL, generate_password_hash(CLAVE_INICIAL)),
+        )
+
+    # Siempre debe existir al menos un administrador
+    hay_admin = db.execute("SELECT 1 FROM usuarios WHERE es_admin = 1").fetchone()
+    if not hay_admin:
+        db.execute(
+            "UPDATE usuarios SET es_admin = 1 WHERE id = (SELECT MIN(id) FROM usuarios)"
+        )
+    db.commit()
+    db.close()
+
+
+# ---------------------------------------------------------------------------
+# Utilidades de cálculo contable
+# ---------------------------------------------------------------------------
+def calcular_saldos_cuentas(db):
+    """Devuelve una lista de dicts con el movimiento y saldo de cada cuenta."""
+    cuentas = db.execute(
+        "SELECT * FROM cuentas WHERE activa = 1 ORDER BY codigo"
+    ).fetchall()
+    resultado = []
+    for c in cuentas:
+        mov = db.execute(
+            "SELECT COALESCE(SUM(debe),0) AS debe, COALESCE(SUM(haber),0) AS haber "
+            "FROM movimientos WHERE cuenta_id = ?",
+            (c["id"],),
+        ).fetchone()
+        naturaleza = NATURALEZA[c["tipo"]]
+        total_debe = mov["debe"] + (c["saldo_inicial"] if naturaleza == "Deudora" else 0)
+        total_haber = mov["haber"] + (c["saldo_inicial"] if naturaleza == "Acreedora" else 0)
+        saldo = total_debe - total_haber
+        saldo_deudor = saldo if saldo >= 0 else 0
+        saldo_acreedor = -saldo if saldo < 0 else 0
+        resultado.append(
+            {
+                "id": c["id"],
+                "codigo": c["codigo"],
+                "nombre": c["nombre"],
+                "tipo": c["tipo"],
+                "naturaleza": naturaleza,
+                "mov_debe": mov["debe"],
+                "mov_haber": mov["haber"],
+                "total_debe": total_debe,
+                "total_haber": total_haber,
+                "saldo_deudor": saldo_deudor,
+                "saldo_acreedor": saldo_acreedor,
+                "saldo": saldo,
+            }
+        )
+    return resultado
+
+
+def siguiente_numero_asiento(db):
+    row = db.execute("SELECT COALESCE(MAX(numero),0) AS n FROM asientos").fetchone()
+    return row["n"] + 1
+
+
+# ---------------------------------------------------------------------------
+# Autenticación y usuarios
+# ---------------------------------------------------------------------------
+RUTAS_PUBLICAS = {"login", "registro", "static"}
+MIN_CLAVE = 8
+PATRON_USUARIO = re.compile(r"[A-Za-z0-9._-]{3,30}")
+
+
+def sello(clave_hash):
+    """Huella corta de la contraseña guardada. Se guarda dentro de la sesión:
+    si la contraseña cambia, la huella cambia y las sesiones abiertas con la
+    contraseña anterior dejan de ser válidas."""
+    return hashlib.sha256(clave_hash.encode()).hexdigest()[:16]
+
+
+@app.before_request
+def exigir_login():
+    """Se ejecuta antes de CADA petición. Exige una sesión válida: el usuario
+    debe seguir existiendo y su contraseña no debe haber cambiado."""
+    if request.endpoint in RUTAS_PUBLICAS or request.endpoint is None:
+        return None
+    fila = None
+    nombre = session.get("usuario")
+    if nombre:
+        fila = get_db().execute(
+            "SELECT id, usuario, clave_hash, es_admin FROM usuarios WHERE usuario = ?",
+            (nombre,),
+        ).fetchone()
+    if not fila or session.get("sello") != sello(fila["clave_hash"]):
+        session.clear()
+        return redirect(url_for("login", next=request.path))
+    g.usuario_actual = fila
+    return None
+
+
+@app.context_processor
+def inyectar_usuario():
+    """Hace disponibles 'usuario_actual' y 'nombre_app' en todas las plantillas."""
+    return {"usuario_actual": g.get("usuario_actual"), "nombre_app": NOMBRE_APP}
+
+
+def solo_admin(vista):
+    """Decorador: la ruta solo puede usarla un administrador."""
+    @wraps(vista)
+    def envoltura(*args, **kwargs):
+        if not g.usuario_actual["es_admin"]:
+            flash("Solo un administrador puede gestionar usuarios.", "error")
+            return redirect(url_for("index"))
+        return vista(*args, **kwargs)
+    return envoltura
+
+
+def validar_clave_nueva(clave, confirmacion):
+    if len(clave) < MIN_CLAVE:
+        return f"La contraseña debe tener al menos {MIN_CLAVE} caracteres."
+    if clave != confirmacion:
+        return "La contraseña y su confirmación no coinciden."
+    return None
+
+
+def crear_usuario(db, nombre, clave, confirmar, es_admin=False):
+    """Valida y crea un usuario. Devuelve None si todo salió bien, o el
+    mensaje de error. Lo comparten la pantalla de administración (Usuarios)
+    y el registro público del login, que SIEMPRE llama con es_admin=False."""
+    if not PATRON_USUARIO.fullmatch(nombre):
+        return ("El usuario debe tener de 3 a 30 caracteres: letras, números, "
+                "punto, guion o guion bajo (sin espacios).")
+    if db.execute(
+        "SELECT 1 FROM usuarios WHERE lower(usuario) = lower(?)", (nombre,)
+    ).fetchone():
+        return f"Ya existe un usuario llamado {nombre}."
+    error = validar_clave_nueva(clave, confirmar)
+    if error:
+        return error
+    try:
+        db.execute(
+            "INSERT INTO usuarios (usuario, clave_hash, es_admin) VALUES (?,?,?)",
+            (nombre, generate_password_hash(clave), 1 if es_admin else 0),
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        # Dos personas creando el mismo nombre al mismo tiempo
+        return f"Ya existe un usuario llamado {nombre}."
+    return None
+
+
+def destino_seguro(destino):
+    """Solo permite redirigir a rutas internas (evita redirecciones a otros sitios)."""
+    if destino and destino.startswith("/") and not destino.startswith("//"):
+        return destino
+    return url_for("index")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if "usuario" in session:
+        return redirect(url_for("index"))
+
+    prefill = request.args.get("usuario", "")[:30]
+    if request.method == "POST":
+        usuario = request.form.get("usuario", "").strip()
+        prefill = usuario
+        clave = request.form.get("clave", "")
+        fila = get_db().execute(
+            "SELECT * FROM usuarios WHERE usuario = ?", (usuario,)
+        ).fetchone()
+        if fila and check_password_hash(fila["clave_hash"], clave):
+            session.clear()
+            session["usuario"] = fila["usuario"]
+            session["sello"] = sello(fila["clave_hash"])
+            return redirect(destino_seguro(request.args.get("next")))
+        flash("Usuario o contraseña incorrectos.", "error")
+
+    return render_template("login.html", modo="login", usuario_prefill=prefill)
+
+
+@app.route("/registro", methods=["GET", "POST"])
+def registro():
+    """Registro público desde la pantalla de login. Los usuarios creados aquí
+    son SIEMPRE de rol 'Usuario' (nunca administradores)."""
+    if "usuario" in session:
+        return redirect(url_for("index"))
+
+    nombre = ""
+    if request.method == "POST":
+        nombre = request.form.get("usuario", "").strip()
+        error = crear_usuario(
+            get_db(),
+            nombre,
+            request.form.get("clave", ""),
+            request.form.get("clave_confirmar", ""),
+            es_admin=False,
+        )
+        if error:
+            flash(error, "error")
+        else:
+            flash(f"Usuario {nombre} creado. Ya puedes iniciar sesión.", "success")
+            return redirect(url_for("login", usuario=nombre))
+
+    return render_template("login.html", modo="registro", usuario_prefill=nombre)
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    flash("Sesión cerrada correctamente.", "success")
+    return redirect(url_for("login"))
+
+
+@app.route("/mi-cuenta", methods=["GET", "POST"])
+def mi_cuenta():
+    """Cada usuario cambia su propia contraseña (debe conocer la actual)."""
+    if request.method == "POST":
+        actual = request.form.get("clave_actual", "")
+        nueva = request.form.get("clave_nueva", "")
+        confirmar = request.form.get("clave_confirmar", "")
+        yo = g.usuario_actual
+
+        if not check_password_hash(yo["clave_hash"], actual):
+            error = "La contraseña actual no es correcta."
+        else:
+            error = validar_clave_nueva(nueva, confirmar)
+            if not error and nueva == actual:
+                error = "La contraseña nueva debe ser distinta de la actual."
+
+        if error:
+            flash(error, "error")
+        else:
+            nuevo_hash = generate_password_hash(nueva)
+            db = get_db()
+            db.execute("UPDATE usuarios SET clave_hash = ? WHERE id = ?", (nuevo_hash, yo["id"]))
+            db.commit()
+            session["sello"] = sello(nuevo_hash)  # mantiene abierta ESTA sesión
+            flash("Contraseña actualizada correctamente.", "success")
+            return redirect(url_for("mi_cuenta"))
+
+    return render_template("cambiar_clave.html", objetivo=None)
+
+
+@app.route("/usuarios", methods=["GET", "POST"])
+@solo_admin
+def usuarios():
+    db = get_db()
+    nombre = ""
+    if request.method == "POST":
+        nombre = request.form.get("usuario", "").strip()
+        error = crear_usuario(
+            db,
+            nombre,
+            request.form.get("clave", ""),
+            request.form.get("clave_confirmar", ""),
+            es_admin=bool(request.form.get("es_admin")),
+        )
+        if error:
+            flash(error, "error")
+        else:
+            flash(f"Usuario {nombre} creado correctamente.", "success")
+            return redirect(url_for("usuarios"))
+
+    lista = db.execute(
+        "SELECT id, usuario, es_admin FROM usuarios ORDER BY usuario COLLATE NOCASE"
+    ).fetchall()
+    return render_template("usuarios.html", usuarios=lista, nombre_form=nombre)
+
+
+@app.route("/usuarios/<int:usuario_id>/clave", methods=["GET", "POST"])
+@solo_admin
+def restablecer_clave(usuario_id):
+    """Un administrador define una contraseña nueva para otro usuario
+    (por ejemplo, si la olvidó). No necesita conocer la anterior."""
+    if usuario_id == g.usuario_actual["id"]:
+        return redirect(url_for("mi_cuenta"))
+    db = get_db()
+    objetivo = db.execute(
+        "SELECT id, usuario FROM usuarios WHERE id = ?", (usuario_id,)
+    ).fetchone()
+    if not objetivo:
+        flash("Ese usuario no existe.", "error")
+        return redirect(url_for("usuarios"))
+
+    if request.method == "POST":
+        error = validar_clave_nueva(
+            request.form.get("clave_nueva", ""), request.form.get("clave_confirmar", "")
+        )
+        if error:
+            flash(error, "error")
+        else:
+            db.execute(
+                "UPDATE usuarios SET clave_hash = ? WHERE id = ?",
+                (generate_password_hash(request.form["clave_nueva"]), usuario_id),
+            )
+            db.commit()
+            flash(f"Contraseña de {objetivo['usuario']} actualizada.", "success")
+            return redirect(url_for("usuarios"))
+
+    return render_template("cambiar_clave.html", objetivo=objetivo)
+
+
+@app.route("/usuarios/<int:usuario_id>/eliminar", methods=["POST"])
+@solo_admin
+def eliminar_usuario(usuario_id):
+    db = get_db()
+    if usuario_id == g.usuario_actual["id"]:
+        flash("No puedes eliminar tu propio usuario.", "error")
+    else:
+        fila = db.execute("SELECT usuario FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+        if fila:
+            db.execute("DELETE FROM usuarios WHERE id = ?", (usuario_id,))
+            db.commit()
+            flash(f"Usuario {fila['usuario']} eliminado.", "success")
+        else:
+            flash("Ese usuario no existe.", "error")
+    return redirect(url_for("usuarios"))
+
+
+# ---------------------------------------------------------------------------
+# Rutas: Panel principal
+# ---------------------------------------------------------------------------
+@app.route("/")
+def index():
+    db = get_db()
+    saldos = calcular_saldos_cuentas(db)
+    activo = sum(s["saldo"] for s in saldos if s["tipo"] == "Activo")
+    pasivo = sum(-s["saldo"] for s in saldos if s["tipo"] == "Pasivo")
+    patrimonio = sum(-s["saldo"] for s in saldos if s["tipo"] == "Patrimonio")
+    ingresos = sum(-s["saldo"] for s in saldos if s["tipo"] == "Ingreso")
+    gastos = sum(s["saldo"] for s in saldos if s["tipo"] == "Gasto")
+    utilidad = ingresos - gastos
+    n_cuentas = len(saldos)
+    n_asientos = db.execute("SELECT COUNT(*) AS n FROM asientos").fetchone()["n"]
+    return render_template(
+        "index.html",
+        activo=activo,
+        pasivo=pasivo,
+        patrimonio=patrimonio,
+        ingresos=ingresos,
+        gastos=gastos,
+        utilidad=utilidad,
+        n_cuentas=n_cuentas,
+        n_asientos=n_asientos,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rutas: Plan de cuentas
+# ---------------------------------------------------------------------------
+@app.route("/cuentas")
+def cuentas():
+    db = get_db()
+    saldos = calcular_saldos_cuentas(db)
+    return render_template("cuentas.html", cuentas=saldos, tipos=TIPOS_CUENTA)
+
+
+@app.route("/cuentas/nueva", methods=["GET", "POST"])
+def nueva_cuenta():
+    db = get_db()
+    if request.method == "POST":
+        codigo = request.form["codigo"].strip()
+        nombre = request.form["nombre"].strip()
+        tipo = request.form["tipo"]
+        saldo_inicial = float(request.form.get("saldo_inicial") or 0)
+
+        if not codigo or not nombre:
+            flash("El código y el nombre son obligatorios.", "error")
+            return render_template("cuenta_form.html", tipos=TIPOS_CUENTA, cuenta=request.form)
+
+        existe = db.execute("SELECT id FROM cuentas WHERE codigo = ?", (codigo,)).fetchone()
+        if existe:
+            flash(f"Ya existe una cuenta con el código {codigo}.", "error")
+            return render_template("cuenta_form.html", tipos=TIPOS_CUENTA, cuenta=request.form)
+
+        db.execute(
+            "INSERT INTO cuentas (codigo, nombre, tipo, saldo_inicial) VALUES (?,?,?,?)",
+            (codigo, nombre, tipo, saldo_inicial),
+        )
+        db.commit()
+        flash(f"Cuenta {codigo} - {nombre} creada correctamente.", "success")
+        return redirect(url_for("cuentas"))
+
+    return render_template("cuenta_form.html", tipos=TIPOS_CUENTA, cuenta=None)
+
+
+@app.route("/cuentas/<int:cuenta_id>/eliminar", methods=["POST"])
+def eliminar_cuenta(cuenta_id):
+    db = get_db()
+    en_uso = db.execute(
+        "SELECT COUNT(*) AS n FROM movimientos WHERE cuenta_id = ?", (cuenta_id,)
+    ).fetchone()["n"]
+    if en_uso > 0:
+        db.execute("UPDATE cuentas SET activa = 0 WHERE id = ?", (cuenta_id,))
+        flash("La cuenta tiene movimientos, se desactivó en lugar de eliminarla.", "info")
+    else:
+        db.execute("DELETE FROM cuentas WHERE id = ?", (cuenta_id,))
+        flash("Cuenta eliminada.", "success")
+    db.commit()
+    return redirect(url_for("cuentas"))
+
+
+# ---------------------------------------------------------------------------
+# Rutas: Libro diario
+# ---------------------------------------------------------------------------
+@app.route("/diario")
+def diario():
+    db = get_db()
+    asientos = db.execute(
+        "SELECT a.*, "
+        "(SELECT COALESCE(SUM(debe),0) FROM movimientos m WHERE m.asiento_id = a.id) AS total "
+        "FROM asientos a ORDER BY a.numero DESC"
+    ).fetchall()
+    return render_template("diario.html", asientos=asientos)
+
+
+@app.route("/diario/nuevo", methods=["GET", "POST"])
+def nuevo_asiento():
+    db = get_db()
+    cuentas_disp = db.execute(
+        "SELECT * FROM cuentas WHERE activa = 1 ORDER BY codigo"
+    ).fetchall()
+
+    if request.method == "POST":
+        fecha = request.form.get("fecha") or str(date.today())
+        descripcion = request.form.get("descripcion", "").strip()
+        cuenta_ids = request.form.getlist("cuenta_id[]")
+        detalles = request.form.getlist("detalle[]")
+        debes = request.form.getlist("debe[]")
+        haberes = request.form.getlist("haber[]")
+
+        lineas = []
+        total_debe = 0.0
+        total_haber = 0.0
+        for cid, det, d, h in zip(cuenta_ids, detalles, debes, haberes):
+            if not cid:
+                continue
+            d_val = float(d) if d else 0.0
+            h_val = float(h) if h else 0.0
+            if d_val == 0 and h_val == 0:
+                continue
+            lineas.append((int(cid), det, d_val, h_val))
+            total_debe += d_val
+            total_haber += h_val
+
+        error = None
+        if not descripcion:
+            error = "La descripción del asiento es obligatoria."
+        elif len(lineas) < 2:
+            error = "El asiento debe tener al menos dos líneas (una al debe y una al haber)."
+        elif round(total_debe, 2) != round(total_haber, 2):
+            error = (
+                f"El asiento no cuadra: Debe = {total_debe:.2f}, "
+                f"Haber = {total_haber:.2f}. Deben ser iguales."
+            )
+        elif total_debe == 0:
+            error = "Los montos no pueden estar todos en cero."
+
+        if error:
+            flash(error, "error")
+            return render_template(
+                "asiento_form.html",
+                cuentas=cuentas_disp,
+                fecha=fecha,
+                descripcion=descripcion,
+                hoy=str(date.today()),
+            )
+
+        numero = siguiente_numero_asiento(db)
+        cur = db.execute(
+            "INSERT INTO asientos (numero, fecha, descripcion) VALUES (?,?,?)",
+            (numero, fecha, descripcion),
+        )
+        asiento_id = cur.lastrowid
+        for cid, det, d_val, h_val in lineas:
+            db.execute(
+                "INSERT INTO movimientos (asiento_id, cuenta_id, detalle, debe, haber) "
+                "VALUES (?,?,?,?,?)",
+                (asiento_id, cid, det, d_val, h_val),
+            )
+        db.commit()
+        flash(f"Asiento #{numero} registrado correctamente.", "success")
+        return redirect(url_for("diario"))
+
+    return render_template(
+        "asiento_form.html",
+        cuentas=cuentas_disp,
+        fecha=str(date.today()),
+        descripcion="",
+        hoy=str(date.today()),
+    )
+
+
+@app.route("/diario/<int:asiento_id>")
+def ver_asiento(asiento_id):
+    db = get_db()
+    asiento = db.execute("SELECT * FROM asientos WHERE id = ?", (asiento_id,)).fetchone()
+    movimientos = db.execute(
+        "SELECT m.*, c.codigo, c.nombre FROM movimientos m "
+        "JOIN cuentas c ON c.id = m.cuenta_id WHERE m.asiento_id = ? ORDER BY m.id",
+        (asiento_id,),
+    ).fetchall()
+    total_debe = sum(m["debe"] for m in movimientos)
+    total_haber = sum(m["haber"] for m in movimientos)
+    return render_template(
+        "asiento_detalle.html",
+        asiento=asiento,
+        movimientos=movimientos,
+        total_debe=total_debe,
+        total_haber=total_haber,
+    )
+
+
+@app.route("/diario/<int:asiento_id>/eliminar", methods=["POST"])
+def eliminar_asiento(asiento_id):
+    db = get_db()
+    db.execute("DELETE FROM asientos WHERE id = ?", (asiento_id,))
+    db.commit()
+    flash("Asiento eliminado.", "success")
+    return redirect(url_for("diario"))
+
+
+# ---------------------------------------------------------------------------
+# Rutas: Libro mayor
+# ---------------------------------------------------------------------------
+@app.route("/mayor")
+def mayor():
+    db = get_db()
+    cuentas_disp = db.execute(
+        "SELECT * FROM cuentas WHERE activa = 1 ORDER BY codigo"
+    ).fetchall()
+    cuenta_id = request.args.get("cuenta_id", type=int)
+
+    movimientos = []
+    cuenta_sel = None
+    saldo_acum = 0.0
+    if cuenta_id:
+        cuenta_sel = db.execute("SELECT * FROM cuentas WHERE id = ?", (cuenta_id,)).fetchone()
+        naturaleza = NATURALEZA[cuenta_sel["tipo"]]
+        saldo_acum = cuenta_sel["saldo_inicial"]
+        filas = db.execute(
+            "SELECT m.*, a.fecha, a.numero, a.descripcion FROM movimientos m "
+            "JOIN asientos a ON a.id = m.asiento_id "
+            "WHERE m.cuenta_id = ? ORDER BY a.fecha, a.numero, m.id",
+            (cuenta_id,),
+        ).fetchall()
+        for f in filas:
+            if naturaleza == "Deudora":
+                saldo_acum += f["debe"] - f["haber"]
+            else:
+                saldo_acum += f["haber"] - f["debe"]
+            movimientos.append(
+                {
+                    "fecha": f["fecha"],
+                    "numero": f["numero"],
+                    "descripcion": f["descripcion"],
+                    "detalle": f["detalle"],
+                    "debe": f["debe"],
+                    "haber": f["haber"],
+                    "saldo": saldo_acum,
+                }
+            )
+
+    return render_template(
+        "mayor.html",
+        cuentas=cuentas_disp,
+        cuenta_sel=cuenta_sel,
+        movimientos=movimientos,
+        saldo_final=saldo_acum,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rutas: Reportes
+# ---------------------------------------------------------------------------
+@app.route("/balance-comprobacion")
+def balance_comprobacion():
+    db = get_db()
+    saldos = calcular_saldos_cuentas(db)
+    totales = {
+        "debe": sum(s["total_debe"] for s in saldos),
+        "haber": sum(s["total_haber"] for s in saldos),
+        "saldo_deudor": sum(s["saldo_deudor"] for s in saldos),
+        "saldo_acreedor": sum(s["saldo_acreedor"] for s in saldos),
+    }
+    return render_template("balance_comprobacion.html", saldos=saldos, totales=totales)
+
+
+@app.route("/estado-resultados")
+def estado_resultados():
+    db = get_db()
+    saldos = calcular_saldos_cuentas(db)
+    ingresos = [s for s in saldos if s["tipo"] == "Ingreso"]
+    gastos = [s for s in saldos if s["tipo"] == "Gasto"]
+    total_ingresos = sum(-s["saldo"] for s in ingresos)
+    total_gastos = sum(s["saldo"] for s in gastos)
+    utilidad = total_ingresos - total_gastos
+    return render_template(
+        "estado_resultados.html",
+        ingresos=ingresos,
+        gastos=gastos,
+        total_ingresos=total_ingresos,
+        total_gastos=total_gastos,
+        utilidad=utilidad,
+    )
+
+
+@app.route("/balance-general")
+def balance_general():
+    db = get_db()
+    saldos = calcular_saldos_cuentas(db)
+    activos = [s for s in saldos if s["tipo"] == "Activo"]
+    pasivos = [s for s in saldos if s["tipo"] == "Pasivo"]
+    patrimonios = [s for s in saldos if s["tipo"] == "Patrimonio"]
+    ingresos = [s for s in saldos if s["tipo"] == "Ingreso"]
+    gastos = [s for s in saldos if s["tipo"] == "Gasto"]
+
+    total_activo = sum(s["saldo"] for s in activos)
+    total_pasivo = sum(-s["saldo"] for s in pasivos)
+    total_patrimonio_cuentas = sum(-s["saldo"] for s in patrimonios)
+    utilidad = sum(-s["saldo"] for s in ingresos) - sum(s["saldo"] for s in gastos)
+    total_patrimonio = total_patrimonio_cuentas + utilidad
+
+    return render_template(
+        "balance_general.html",
+        activos=activos,
+        pasivos=pasivos,
+        patrimonios=patrimonios,
+        utilidad=utilidad,
+        total_activo=total_activo,
+        total_pasivo=total_pasivo,
+        total_patrimonio_cuentas=total_patrimonio_cuentas,
+        total_patrimonio=total_patrimonio,
+        cuadra=round(total_activo, 2) == round(total_pasivo + total_patrimonio, 2),
+    )
+
+
+if __name__ == "__main__":
+    init_db()
+    print("=" * 60)
+    print(f" {NOMBRE_APP}")
+    print(f" Base de datos local: {DB_PATH}")
+    print(" Abre tu navegador en: http://127.0.0.1:5000")
+    print("=" * 60)
+    app.run(debug=True, port=5000)

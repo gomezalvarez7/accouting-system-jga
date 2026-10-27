@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Libro diario{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Libro diario</h1>
+    <div class="subtitle">Registro cronológico de todos los asientos contables</div>
+  </div>
+  <a href="{{ url_for('nuevo_asiento') }}" class="btn">+ Nuevo asiento</a>
+</div>
+
+<div class="panel">
+  {% if asientos %}
+  <table>
+    <thead>
+      <tr>
+        <th>N.º</th>
+        <th>Fecha</th>
+        <th>Descripción</th>
+        <th class="num">Monto</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in asientos %}
+      <tr>
+        <td class="num" style="text-align:left;">#{{ a.numero }}</td>
+        <td>{{ a.fecha }}</td>
+        <td><a href="{{ url_for('ver_asiento', asiento_id=a.id) }}">{{ a.descripcion }}</a></td>
+        <td class="num">${{ "%.2f"|format(a.total) }}</td>
+        <td>
+          <a href="{{ url_for('ver_asiento', asiento_id=a.id) }}" class="btn btn-secondary btn-sm">Ver</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    Aún no hay asientos registrados. <a href="{{ url_for('nuevo_asiento') }}">Crea el primer asiento</a>.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

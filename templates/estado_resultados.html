@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Estado de resultados{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Estado de resultados</h1>
+    <div class="subtitle">Ingresos y gastos del periodo</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Ingresos</h2>
+  <table>
+    <tbody>
+      {% for i in ingresos %}
+      <tr>
+        <td>{{ i.codigo }} · {{ i.nombre }}</td>
+        <td class="num">${{ "%.2f"|format(-i.saldo) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="2" class="empty-state">Sin cuentas de ingreso</td></tr>
+      {% endfor %}
+      <tr class="foot-total">
+        <td>Total ingresos</td>
+        <td class="num">${{ "%.2f"|format(total_ingresos) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <h2>Gastos</h2>
+  <table>
+    <tbody>
+      {% for gto in gastos %}
+      <tr>
+        <td>{{ gto.codigo }} · {{ gto.nombre }}</td>
+        <td class="num">${{ "%.2f"|format(gto.saldo) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="2" class="empty-state">Sin cuentas de gasto</td></tr>
+      {% endfor %}
+      <tr class="foot-total">
+        <td>Total gastos</td>
+        <td class="num">${{ "%.2f"|format(total_gastos) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <table>
+    <tr class="foot-total">
+      <td>Utilidad / Pérdida del ejercicio</td>
+      <td class="num">${{ "%.2f"|format(utilidad) }}</td>
+    </tr>
+  </table>
+</div>
+{% endblock %}

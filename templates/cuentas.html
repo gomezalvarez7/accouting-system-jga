@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Plan de cuentas{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Plan de cuentas</h1>
+    <div class="subtitle">Catálogo de cuentas contables y sus saldos actuales</div>
+  </div>
+  <a href="{{ url_for('nueva_cuenta') }}" class="btn">+ Nueva cuenta</a>
+</div>
+
+<div class="panel">
+  {% if cuentas %}
+  <table>
+    <thead>
+      <tr>
+        <th>Código</th>
+        <th>Nombre</th>
+        <th>Tipo</th>
+        <th>Naturaleza</th>
+        <th class="num">Saldo deudor</th>
+        <th class="num">Saldo acreedor</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in cuentas %}
+      <tr>
+        <td class="num" style="text-align:left;">{{ c.codigo }}</td>
+        <td><a href="{{ url_for('mayor') }}?cuenta_id={{ c.id }}">{{ c.nombre }}</a></td>
+        <td><span class="tag tag-{{ c.tipo }}">{{ c.tipo }}</span></td>
+        <td>{{ c.naturaleza }}</td>
+        <td class="num">{{ "%.2f"|format(c.saldo_deudor) if c.saldo_deudor else "" }}</td>
+        <td class="num">{{ "%.2f"|format(c.saldo_acreedor) if c.saldo_acreedor else "" }}</td>
+        <td>
+          <form method="post" action="{{ url_for('eliminar_cuenta', cuenta_id=c.id) }}"
+                onsubmit="return confirm('¿Eliminar o desactivar esta cuenta?');" style="display:inline;">
+            <button type="submit" class="btn btn-secondary btn-sm">Eliminar</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    Todavía no tienes cuentas. <a href="{{ url_for('nueva_cuenta') }}">Crea la primera cuenta</a> para empezar.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Balance general{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Balance general</h1>
+    <div class="subtitle">Activo = Pasivo + Patrimonio</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Activo</h2>
+  <table>
+    <tbody>
+      {% for a in activos %}
+      <tr>
+        <td>{{ a.codigo }} · {{ a.nombre }}</td>
+        <td class="num">${{ "%.2f"|format(a.saldo) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="2" class="empty-state">Sin cuentas de activo</td></tr>
+      {% endfor %}
+      <tr class="foot-total">
+        <td>Total activo</td>
+        <td class="num">${{ "%.2f"|format(total_activo) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <h2>Pasivo</h2>
+  <table>
+    <tbody>
+      {% for p in pasivos %}
+      <tr>
+        <td>{{ p.codigo }} · {{ p.nombre }}</td>
+        <td class="num">${{ "%.2f"|format(-p.saldo) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="2" class="empty-state">Sin cuentas de pasivo</td></tr>
+      {% endfor %}
+      <tr class="foot-total">
+        <td>Total pasivo</td>
+        <td class="num">${{ "%.2f"|format(total_pasivo) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <h2>Patrimonio</h2>
+  <table>
+    <tbody>
+      {% for p in patrimonios %}
+      <tr>
+        <td>{{ p.codigo }} · {{ p.nombre }}</td>
+        <td class="num">${{ "%.2f"|format(-p.saldo) }}</td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td>Utilidad del ejercicio</td>
+        <td class="num">${{ "%.2f"|format(utilidad) }}</td>
+      </tr>
+      <tr class="foot-total">
+        <td>Total patrimonio</td>
+        <td class="num">${{ "%.2f"|format(total_patrimonio) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <table>
+    <tr>
+      <td>Total Pasivo + Patrimonio</td>
+      <td class="num">${{ "%.2f"|format(total_pasivo + total_patrimonio) }}</td>
+    </tr>
+  </table>
+  {% if cuadra %}
+  <div class="flash flash-success" style="margin-top:14px;">✓ El balance general cuadra correctamente.</div>
+  {% else %}
+  <div class="flash flash-error" style="margin-top:14px;">⚠ El balance no cuadra. Revisa los asientos registrados.</div>
+  {% endif %}
+</div>
+{% endblock %}

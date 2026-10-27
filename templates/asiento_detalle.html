@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Asiento #{{ asiento.numero }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Asiento #{{ asiento.numero }}</h1>
+    <div class="subtitle">{{ asiento.fecha }} · {{ asiento.descripcion }}</div>
+  </div>
+  <a href="{{ url_for('diario') }}" class="btn btn-secondary">Volver al diario</a>
+</div>
+
+<div class="panel">
+  <table>
+    <thead>
+      <tr>
+        <th>Cuenta</th>
+        <th>Detalle</th>
+        <th class="num">Debe</th>
+        <th class="num">Haber</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in movimientos %}
+      <tr>
+        <td>{{ m.codigo }} · {{ m.nombre }}</td>
+        <td>{{ m.detalle or "—" }}</td>
+        <td class="num">{{ "%.2f"|format(m.debe) if m.debe else "" }}</td>
+        <td class="num">{{ "%.2f"|format(m.haber) if m.haber else "" }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="foot-total">
+        <td colspan="2">Totales</td>
+        <td class="num">{{ "%.2f"|format(total_debe) }}</td>
+        <td class="num">{{ "%.2f"|format(total_haber) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<form method="post" action="{{ url_for('eliminar_asiento', asiento_id=asiento.id) }}"
+      onsubmit="return confirm('¿Eliminar este asiento? Esta acción no se puede deshacer.');">
+  <button type="submit" class="btn btn-danger">Eliminar asiento</button>
+</form>
+{% endblock %}

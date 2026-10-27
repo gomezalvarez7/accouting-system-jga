@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Usuarios{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Usuarios</h1>
+    <div class="subtitle">Personas que pueden entrar al sistema</div>
+  </div>
+</div>
+
+<div class="panel">
+  <table>
+    <thead>
+      <tr><th>Usuario</th><th>Rol</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for u in usuarios %}
+      <tr>
+        <td>
+          {{ u.usuario }}
+          {% if u.id == usuario_actual.id %}<span class="subtitle">(tú)</span>{% endif %}
+        </td>
+        <td>
+          <span class="tag {{ 'tag-admin' if u.es_admin else 'tag-user' }}">
+            {{ 'Administrador' if u.es_admin else 'Usuario' }}
+          </span>
+        </td>
+        <td style="text-align:right; white-space:nowrap;">
+          {% if u.id == usuario_actual.id %}
+            <a href="{{ url_for('mi_cuenta') }}" class="btn btn-secondary btn-sm">Cambiar mi contraseña</a>
+          {% else %}
+            <a href="{{ url_for('restablecer_clave', usuario_id=u.id) }}" class="btn btn-secondary btn-sm">Restablecer contraseña</a>
+            <form method="post" action="{{ url_for('eliminar_usuario', usuario_id=u.id) }}"
+                  onsubmit="return confirm('¿Eliminar al usuario {{ u.usuario }}? Ya no podrá entrar al sistema.');"
+                  style="display:inline;">
+              <button type="submit" class="btn btn-secondary btn-sm">Eliminar</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="max-width:640px;">
+  <h2>Crear usuario</h2>
+  <p class="subtitle" style="margin-bottom:18px;">
+    La contraseña debe tener al menos 8 caracteres.
+  </p>
+  <form method="post">
+    <div class="form-grid">
+      <div class="field full">
+        <label for="usuario">Nombre de usuario</label>
+        <input id="usuario" type="text" name="usuario" value="{{ nombre_form }}"
+               autocomplete="off" required>
+      </div>
+      <div class="field">
+        <label for="clave">Contraseña</label>
+        <input id="clave" type="password" name="clave" autocomplete="new-password" required>
+      </div>
+      <div class="field">
+        <label for="clave_confirmar">Confirmar contraseña</label>
+        <input id="clave_confirmar" type="password" name="clave_confirmar" autocomplete="new-password" required>
+      </div>
+      <div class="field full check-row">
+        <input id="es_admin" type="checkbox" name="es_admin" value="1">
+        <label for="es_admin">Es administrador (puede crear y eliminar usuarios)</label>
+      </div>
+    </div>
+    <div class="actions-row">
+      <button type="submit" class="btn">Crear usuario</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

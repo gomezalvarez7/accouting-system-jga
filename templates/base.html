@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Inicio{% endblock %} · {{ nombre_app }}</title>
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='img/favicon.png') }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="{{ url_for('index') }}" title="{{ nombre_app }}">
+      <img class="brand-logo" src="{{ url_for('static', filename='img/logo.png') }}" alt="{{ nombre_app }}">
+    </a>
+    <nav class="nav">
+      <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint=='index' }}">Panel</a>
+      <a href="{{ url_for('cuentas') }}" class="{{ 'active' if request.endpoint in ['cuentas','nueva_cuenta'] }}">Plan de cuentas</a>
+      <a href="{{ url_for('diario') }}" class="{{ 'active' if request.endpoint in ['diario','nuevo_asiento','ver_asiento'] }}">Libro diario</a>
+      <a href="{{ url_for('mayor') }}" class="{{ 'active' if request.endpoint=='mayor' }}">Libro mayor</a>
+      <div class="nav-divider">Reportes</div>
+      <a href="{{ url_for('balance_comprobacion') }}" class="{{ 'active' if request.endpoint=='balance_comprobacion' }}">Balance de comprobación</a>
+      <a href="{{ url_for('estado_resultados') }}" class="{{ 'active' if request.endpoint=='estado_resultados' }}">Estado de resultados</a>
+      <a href="{{ url_for('balance_general') }}" class="{{ 'active' if request.endpoint=='balance_general' }}">Balance general</a>
+      {% if usuario_actual and usuario_actual.es_admin %}
+      <div class="nav-divider">Administración</div>
+      <a href="{{ url_for('usuarios') }}" class="{{ 'active' if request.endpoint in ['usuarios','restablecer_clave'] }}">Usuarios</a>
+      {% endif %}
+    </nav>
+    <div class="user-box">
+      <div class="user-name">Sesión: <strong>{{ usuario_actual.usuario if usuario_actual else '' }}</strong></div>
+      <a href="{{ url_for('mi_cuenta') }}" class="account-link {{ 'active' if request.endpoint=='mi_cuenta' }}">Mi cuenta · cambiar contraseña</a>
+      <form method="post" action="{{ url_for('logout') }}">
+        <button type="submit" class="logout-btn">Cerrar sesión</button>
+      </form>
+    </div>
+    <div class="sidebar-foot">Datos guardados en<br><code>contabilidad.db</code></div>
+  </aside>
+
+  <main class="content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-stack">
+        {% for category, message in messages %}
+          <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+</body>
+</html>

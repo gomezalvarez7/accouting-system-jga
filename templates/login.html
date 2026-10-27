@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ 'Crear usuario' if modo == 'registro' else 'Iniciar sesión' }} · {{ nombre_app }}</title>
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='img/favicon.png') }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <img class="login-logo" src="{{ url_for('static', filename='img/logo.png') }}" alt="{{ nombre_app }}">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-stack">
+        {% for category, message in messages %}
+          <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    {% if modo == 'registro' %}
+    <!-- ============ CREAR USUARIO ============ -->
+    <h1 class="login-heading">Crear usuario</h1>
+    <p class="login-lead">Elige tu nombre de usuario y una contraseña.</p>
+
+    <form method="post" action="{{ url_for('registro') }}">
+      <div class="field">
+        <label for="usuario">Nuevo usuario</label>
+        <input id="usuario" type="text" name="usuario" value="{{ usuario_prefill }}"
+               autocomplete="username" maxlength="30" autofocus required>
+        <p class="login-hint">3 a 30 caracteres: letras, números, punto, guion o guion bajo (sin espacios).</p>
+      </div>
+      <div class="field">
+        <label for="clave">Contraseña</label>
+        <input id="clave" type="password" name="clave" autocomplete="new-password" required>
+        <p class="login-hint">Mínimo 8 caracteres.</p>
+      </div>
+      <div class="field">
+        <label for="clave_confirmar">Confirmar contraseña</label>
+        <input id="clave_confirmar" type="password" name="clave_confirmar" autocomplete="new-password" required>
+      </div>
+      <button type="submit" class="btn btn-block">Crear usuario</button>
+    </form>
+
+    <div class="login-switch">
+      <p>¿Ya tienes usuario?</p>
+      <a href="{{ url_for('login') }}" class="btn btn-secondary btn-block">Volver a iniciar sesión</a>
+    </div>
+
+    {% else %}
+    <!-- ============ INICIAR SESIÓN ============ -->
+    <h1 class="login-heading">Iniciar sesión</h1>
+    <p class="login-lead">Ingresa con tu usuario y contraseña.</p>
+
+    <form method="post" action="{{ url_for('login', next=request.args.get('next')) if request.args.get('next') else url_for('login') }}">
+      <div class="field">
+        <label for="usuario">Usuario</label>
+        <input id="usuario" type="text" name="usuario" value="{{ usuario_prefill }}"
+               autocomplete="username" {{ '' if usuario_prefill else 'autofocus' }} required>
+      </div>
+      <div class="field">
+        <label for="clave">Contraseña</label>
+        <input id="clave" type="password" name="clave" autocomplete="current-password"
+               {{ 'autofocus' if usuario_prefill else '' }} required>
+      </div>
+      <button type="submit" class="btn btn-block">Entrar</button>
+    </form>
+
+    <div class="login-switch">
+      <p>¿Aún no tienes usuario?</p>
+      <a href="{{ url_for('registro') }}" class="btn btn-secondary btn-block">Crear usuario</a>
+    </div>
+    {% endif %}
+  </main>
+</body>
+</html>
