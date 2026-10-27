@@ -33,13 +33,7 @@ KEY_PATH = os.path.join(BASE_DIR, "secret.key")
 
 
 def cargar_secret_key():
-    """Genera una clave secreta aleatoria la primera vez y la reutiliza después.
-    Sirve para firmar la sesión (cookie) del login."""
-    if not os.path.exists(KEY_PATH):
-        with open(KEY_PATH, "w") as f:
-            f.write(secrets.token_hex(32))
-    with open(KEY_PATH) as f:
-        return f.read().strip()
+    return os.environ.get("SECRET_KEY") or "clave-local-solo-para-desarrollo"
 
 
 app = Flask(__name__)
