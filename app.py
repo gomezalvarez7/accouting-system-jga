@@ -27,7 +27,8 @@ from flask import (
 from werkzeug.security import generate_password_hash, check_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "contabilidad.db")
+DB_DIR = "/tmp" if os.environ.get("VERCEL") else BASE_DIR
+DB_PATH = os.path.join(DB_DIR, "contabilidad.db")
 
 KEY_PATH = os.path.join(BASE_DIR, "secret.key")
 
@@ -135,6 +136,12 @@ def init_db():
         )
     db.commit()
     db.close()
+
+
+# En Vercel, inicializa la base al importar la aplicación. /tmp es escribible,
+# pero es almacenamiento temporal: no garantiza conservar datos entre despliegues.
+if os.environ.get("VERCEL"):
+    init_db()
 
 
 # ---------------------------------------------------------------------------
